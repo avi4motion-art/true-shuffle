@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1412">
+<title>ערבוב אמיתי</title>
+<style>
+  :root{
+    --bg:#0f1412; --card:#18201c; --line:#26312b; --text:#eef3f0; --muted:#93a39a;
+    --accent:#1ed760; --accent-ink:#06210f; --warn:#ffb35c; --err:#ff6b6b;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text);
+    font-family:"Rubik","Heebo",system-ui,-apple-system,"Segoe UI",Arial,sans-serif;
+    -webkit-tap-highlight-color:transparent}
+  main{max-width:520px;margin:0 auto;padding:max(24px,env(safe-area-inset-top)) 18px 40px}
+  h1{font-size:28px;margin:8px 0 4px;letter-spacing:-.3px}
+  h1 span{color:var(--accent)}
+  .sub{color:var(--muted);margin:0 0 22px;line-height:1.5}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px;margin-bottom:14px}
+  button,.btn{appearance:none;border:0;border-radius:999px;font:inherit;font-weight:600;
+    padding:15px 20px;width:100%;cursor:pointer;display:block;text-align:center;text-decoration:none;
+    transition:transform .12s ease, opacity .2s}
+  button:active,.btn:active{transform:scale(.97)}
+  .primary{background:var(--accent);color:var(--accent-ink);font-size:18px}
+  .ghost{background:transparent;color:var(--text);border:1px solid var(--line);margin-top:10px}
+  button:disabled{opacity:.5;cursor:default}
+  label.row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;cursor:pointer}
+  label.row small{display:block;color:var(--muted);font-size:13px;margin-top:2px}
+  input[type=checkbox]{width:22px;height:22px;accent-color:var(--accent);flex:none}
+  input[type=text]{width:100%;padding:13px 14px;border-radius:12px;border:1px solid var(--line);
+    background:#0c100e;color:var(--text);font:inherit;direction:ltr;text-align:left}
+  .status{min-height:22px;color:var(--muted);font-size:15px;margin-top:14px;line-height:1.5}
+  .status.err{color:var(--err)} .status.ok{color:var(--accent)}
+  .bar{height:6px;background:#0c100e;border-radius:9px;overflow:hidden;margin-top:12px;display:none}
+  .bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .25s}
+  .who{display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:14px;margin-bottom:14px}
+  .who a{color:var(--muted)}
+  .hidden{display:none!important}
+  h2{font-size:19px;margin:0 0 10px}
+  textarea{width:100%;margin:12px 0 10px;padding:12px 14px;border-radius:12px;border:1px solid var(--line);
+    background:#0c100e;color:var(--text);font:inherit;font-size:15px;resize:vertical;direction:auto}
+  .dup{padding:10px 0;border-bottom:1px solid var(--line);font-size:14px}
+  .dup:last-child{border-bottom:0}
+  .dup .keep{color:var(--muted)}
+  .dup label{display:flex;gap:10px;align-items:center;margin-top:6px;cursor:pointer}
+  .miss{color:var(--muted);font-size:13px;margin-top:8px;line-height:1.6}
+  .res{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 0;border-bottom:1px solid var(--line)}
+  .res:last-child{border-bottom:0}
+  .res small{color:var(--muted);display:block;font-size:13px}
+  .res a{flex:none;background:var(--accent);color:var(--accent-ink);text-decoration:none;font-weight:600;
+    border-radius:999px;padding:8px 14px;font-size:14px}
+  .tip{font-size:13.5px;color:var(--muted);line-height:1.6}
+  .tip b{color:var(--warn);font-weight:600}
+  code{direction:ltr;unicode-bidi:embed;background:#0c100e;padding:2px 6px;border-radius:6px;font-size:13px}
+</style>
+</head>
+<body>
+<main>
+  <h1>🔀 ערבוב <span>אמיתי</span></h1>
+  <p class="sub">הופך את "שירים שאהבתי" לפלייליסטים פרטיים בערבוב אקראי אמיתי: הכל, חדשים, לפי שפה ולפי עשור.</p>
+
+  <!-- Setup: client id -->
+  <section id="setup" class="card hidden">
+    <p style="margin-top:0">הגדרה חד־פעמית: הדבק את ה־Client ID מאפליקציית Spotify Developer.</p>
+    <input id="cid" type="text" placeholder="Client ID" autocomplete="off" spellcheck="false">
+    <p class="tip">Redirect URI להגדרה ב־Dashboard:<br><code id="redir"></code></p>
+    <button class="primary" id="saveCid">שמור</button>
+  </section>
+
+  <!-- Login -->
+  <section id="login" class="card hidden">
+    <button class="primary" id="loginBtn">התחבר לספוטיפיי</button>
+  </section>
+
+  <!-- Main -->
+  <section id="app" class="hidden">
+    <div class="who"><span id="me">…</span><a href="#" id="logout">התנתק</a></div>
+    <div class="card">
+      <label class="row"><span>🔀 ערבוב כללי<small>כל השירים שאהבת בסדר אקראי</small></span>
+        <input type="checkbox" id="optAll" checked></label>
+      <label class="row"><span>✨ חדשים שלי<small>מה שסימנת בלב ב־30 הימים האחרונים</small></span>
+        <input type="checkbox" id="optNew" checked></label>
+      <label class="row"><span>🗣️ לפי שפה<small>עברית / לועזית (וגם ערבית, רוסית אם יש)</small></span>
+        <input type="checkbox" id="optLang" checked></label>
+      <label class="row"><span>📅 לפי עשור<small>שנות ה־80, ה־90, ה־2000…</small></span>
+        <input type="checkbox" id="optDecade" checked></label>
+      <label class="row"><span>לא שני שירים של אותו אמן ברצף<small>מפזר אמנים לאורך כל פלייליסט</small></span>
+        <input type="checkbox" id="spread" checked></label>
+      <button class="primary" id="go" style="margin-top:8px">עדכן פלייליסטים</button>
+      <div class="bar" id="bar"><i></i></div>
+      <div class="status" id="status"></div>
+    </div>
+    <div id="openWrap" class="card hidden">
+      <div id="results"></div>
+      <p class="tip" style="text-align:center;margin:14px 0 0"><b>חשוב:</b> נגן כשהערבוב (🔀) בספוטיפיי <b>כבוי</b>. הסדר כבר אקראי.<br>שירים חדשים שתסמן בלב ייכנסו בעדכון הבא.</p>
+    </div>
+
+    <!-- Recommendations -->
+    <div class="card">
+      <h2>🎁 ההמלצות של השבוע</h2>
+      <p class="tip" style="margin-top:0">1. העתק את פרופיל הטעם ושלח ל־Claude.<br>2. הדבק כאן את הרשימה שקיבלת (שורה לכל שיר, בפורמט: אמן - שיר).<br>שירים שכבר אהבת מדולגים אוטומטית.</p>
+      <button class="ghost" id="copyProfile" style="margin-top:0">📋 העתק פרופיל טעם</button>
+      <textarea id="recList" rows="7" placeholder="Artist - Song&#10;אמן - שיר"></textarea>
+      <button class="primary" id="buildRecs">בנה פלייליסט המלצות</button>
+      <div class="status" id="recStatus"></div>
+      <div id="recResult"></div>
+    </div>
+
+    <!-- Duplicates -->
+    <div class="card">
+      <h2>🧹 ניקוי כפילויות</h2>
+      <p class="tip" style="margin-top:0">מוצא שירים שמופיעים פעמיים ב"שירים שאהבתי" (למשל גרסת אלבום + סינגל, או רימאסטר). הגרסה הראשונה שסימנת נשארת.</p>
+      <button class="ghost" id="findDups" style="margin-top:0">חפש כפילויות</button>
+      <div class="status" id="dupStatus"></div>
+      <div id="dupList"></div>
+      <button class="primary hidden" id="removeDups">הסר את המסומנים</button>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const PLAYLIST_NAME = '🔀 Shuffled';
+  const SCOPES = 'user-library-read user-library-modify playlist-read-private playlist-modify-private playlist-modify-public';
+  const REDIRECT = location.origin + location.pathname;
+  // Default Client ID (filled in after creating the Spotify app). Can be overridden in localStorage.
+  const DEFAULT_CLIENT_ID = '';
+
+  const $ = id => document.getElementById(id);
+  const store = {
+    get(k){ try{ return localStorage.getItem(k) }catch{ return null } },
+    set(k,v){ try{ localStorage.setItem(k,v) }catch{} },
+    del(k){ try{ localStorage.removeItem(k) }catch{} }
+  };
+  const clientId = () => store.get('ts_client_id') || DEFAULT_CLIENT_ID;
+
+  function show(id){ ['setup','login','app'].forEach(s => $(s).classList.toggle('hidden', s !== id)) }
+  function status(msg, cls=''){ const s=$('status'); s.textContent = msg; s.className = 'status ' + cls }
+  function progress(p){ const b=$('bar'); b.style.display = p==null ? 'none':'block'; b.firstElementChild.style.width = ((p||0)*100)+'%' }
+
+  // ---------- PKCE auth ----------
+  const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  function randStr(n=64){ const a=new Uint8Array(n); crypto.getRandomValues(a); return b64url(a).slice(0,n) }
+
+  async function login(){
+    const verifier = randStr(64);
+    const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+    const state = randStr(16);
+    store.set('ts_verifier', verifier); store.set('ts_state', state);
+    const p = new URLSearchParams({ client_id: clientId(), response_type:'code', redirect_uri: REDIRECT,
+      code_challenge_method:'S256', code_challenge: challenge, scope: SCOPES, state });
+    location.href = 'https://accounts.spotify.com/authorize?' + p;
+  }
+
+  async function tokenRequest(body){
+    const r = await fetch('https://accounts.spotify.com/api/token', {
+      method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: new URLSearchParams(body) });
+    const j = await r.json();
+    if(!r.ok) throw new Error(j.error_description || j.error || 'token error');
+    store.set('ts_access', j.access_token);
+    store.set('ts_expires', String(Date.now() + (j.expires_in - 60) * 1000));
+    if(j.refresh_token) store.set('ts_refresh', j.refresh_token);
+  }
+
+  async function handleRedirect(){
+    const q = new URLSearchParams(location.search);
+    if(!q.has('code') && !q.has('error')) return;
+    history.replaceState(null, '', REDIRECT);
+    if(q.get('error')) throw new Error('ההתחברות בוטלה');
+    if(q.get('state') !== store.get('ts_state')) throw new Error('שגיאת אבטחה בהתחברות, נסה שוב');
+    await tokenRequest({ client_id: clientId(), grant_type:'authorization_code', code: q.get('code'),
+      redirect_uri: REDIRECT, code_verifier: store.get('ts_verifier') });
+    store.del('ts_verifier'); store.del('ts_state');
+  }
+
+  async function token(){
+    if(store.get('ts_access') && Date.now() < +store.get('ts_expires')) return store.get('ts_access');
+    if(!store.get('ts_refresh')) return null;
+    await tokenRequest({ client_id: clientId(), grant_type:'refresh_token', refresh_token: store.get('ts_refresh') });
+    return store.get('ts_access');
+  }
+
+  function logout(){ ['ts_access','ts_expires','ts_refresh'].forEach(store.del); show('login') }
+
+  // ---------- API ----------
+  async function api(path, opts={}, tries=0){
+    const t = await token();
+    if(!t){ logout(); throw new Error('צריך להתחבר מחדש') }
+    const url = path.startsWith('http') ? path : 'https://api.spotify.com/v1' + path;
+    const r = await fetch(url, { ...opts, headers:{ Authorization:'Bearer '+t, 'Content-Type':'application/json', ...(opts.headers||{}) } });
+    if(r.status === 429 && tries < 5){
+      const wait = (+r.headers.get('Retry-After') || 2) * 1000;
+      status('ספוטיפיי ביקש להאט, ממתין ' + Math.ceil(wait/1000) + ' שניות…');
+      await new Promise(res => setTimeout(res, wait));
+      return api(path, opts, tries+1);
+    }
+    if(r.status === 401 && tries < 1){ store.del('ts_access'); return api(path, opts, tries+1) }
+    if(r.status === 204) return null;
+    const j = await r.json().catch(() => null);
+    if(!r.ok) throw new Error((j && j.error && j.error.message) || ('HTTP ' + r.status));
+    return j;
+  }
+
+  async function fetchLiked(report){
+    report = report || ((msg, p) => { status(msg); progress(p) });
+    const tracks = [];
+    let url = '/me/tracks?limit=50', total = 0;
+    while(url){
+      const page = await api(url);
+      total = page.total || total;
+      for(const it of page.items || []){
+        const tr = it.track || it.item;
+        if(tr && tr.uri && !tr.is_local && tr.uri.startsWith('spotify:track:')){
+          const artists = (tr.artists || []).map(a => a.name).join(' ');
+          const rd = tr.album && tr.album.release_date;
+          tracks.push({ uri: tr.uri, name: tr.name, added: Date.parse(it.added_at) || 0,
+            artist: (tr.artists && tr.artists[0] && tr.artists[0].name) || '',
+            artistId: (tr.artists && tr.artists[0] && tr.artists[0].id) || tr.uri,
+            year: rd ? parseInt(rd.slice(0, 4), 10) || null : null,
+            lang: detectLang(tr.name + ' ' + artists + ' ' + ((tr.album && tr.album.name) || '')) });
+        }
+      }
+      report(`טוען שירים שאהבת… ${tracks.length}${total ? ' / ' + total : ''}`, total ? 0.5 * tracks.length / total : 0.2);
+      url = page.next;
+    }
+    return tracks;
+  }
+
+  // ---------- Shuffle ----------
+  function randInt(n){ // unbiased random int in [0,n)
+    const max = Math.floor(0x100000000 / n) * n, a = new Uint32Array(1);
+    do crypto.getRandomValues(a); while(a[0] >= max);
+    return a[0] % n;
+  }
+  function fisherYates(arr){
+    const a = arr.slice();
+    for(let i = a.length - 1; i > 0; i--){ const j = randInt(i + 1); [a[i], a[j]] = [a[j], a[i]] }
+    return a;
+  }
+  // After a true shuffle, fix places where the same artist plays twice in a row,
+  // by swapping with the nearest later track whose artist fits. Keeps randomness otherwise intact.
+  function spreadArtists(a){
+    for(let i = 1; i < a.length; i++){
+      if(a[i].artistId !== a[i-1].artistId) continue;
+      for(let j = i + 1; j < a.length; j++){
+        if(a[j].artistId !== a[i-1].artistId){
+          [a[i], a[j]] = [a[j], a[i]]; break;
+        }
+      }
+    }
+    return a;
+  }
+
+  // ---------- Grouping ----------
+  // Spotify has no language field, so we read the script of the title/artist/album.
+  function detectLang(s){
+    if(/[֐-׿]/.test(s)) return 'he';
+    if(/[؀-ۿ]/.test(s)) return 'ar';
+    if(/[Ѐ-ӿ]/.test(s)) return 'ru';
+    return 'other';
+  }
+  const LANG_NAMES = { he:'🇮🇱 עברית', other:'🌍 לועזית', ar:'🎶 ערבית', ru:'🎶 רוסית' };
+  const MIN_TRACKS = 5;
+
+  function buildGroups(tracks){
+    const groups = [];
+    if($('optAll').checked) groups.push({ name: PLAYLIST_NAME, desc:'ערבוב אקראי אמיתי של שירים שאהבתי. לנגן עם ערבוב כבוי.', tracks });
+    if($('optNew').checked){
+      const cutoff = Date.now() - 30 * 864e5;
+      const t = tracks.filter(x => x.added >= cutoff);
+      if(t.length) groups.push({ name: '🔀 ✨ חדשים שלי', desc:'שירים שסימנתי בלב ב־30 הימים האחרונים, בערבוב אקראי.', tracks: t });
+    }
+    if($('optLang').checked){
+      for(const code of ['he','other','ar','ru']){
+        const t = tracks.filter(x => x.lang === code);
+        if(t.length >= MIN_TRACKS) groups.push({ name: '🔀 ' + LANG_NAMES[code], desc:'שירים שאהבתי לפי שפה, בערבוב אקראי.', tracks: t });
+      }
+    }
+    if($('optDecade').checked){
+      const by = {};
+      for(const t of tracks){ if(!t.year) continue; const d = Math.floor(t.year / 10) * 10; (by[d] = by[d] || []).push(t) }
+      Object.keys(by).map(Number).sort((a,b) => a - b).forEach(d => {
+        if(by[d].length < MIN_TRACKS) return;
+        const label = d >= 2000 ? `שנות ה־${d}` : `שנות ה־${String(d).slice(2)}`;
+        groups.push({ name: `🔀 📅 ${label}`, desc:`שירים שאהבתי מ${label}, בערבוב אקראי.`, tracks: by[d] });
+      });
+    }
+    return groups;
+  }
+
+  // ---------- Playlists ----------
+  async function loadMyPlaylists(meId){
+    const map = {};
+    let url = '/me/playlists?limit=50';
+    while(url){
+      const page = await api(url);
+      for(const p of page.items || []) if(p && p.owner && p.owner.id === meId && !(p.name in map)) map[p.name] = p.id;
+      url = page.next;
+    }
+    return map;
+  }
+  async function getOrCreate(map, name, desc){
+    if(map[name]) return map[name];
+    const created = await api('/me/playlists', { method:'POST', body: JSON.stringify({ name, public:false, description: desc }) });
+    map[name] = created.id;
+    return created.id;
+  }
+  async function writePlaylist(id, uris){
+    const chunks = [];
+    for(let i = 0; i < uris.length; i += 100) chunks.push(uris.slice(i, i + 100));
+    await api(`/playlists/${id}/items`, { method:'PUT', body: JSON.stringify({ uris: chunks[0] || [] }) });
+    for(let k = 1; k < chunks.length; k++)
+      await api(`/playlists/${id}/items`, { method:'POST', body: JSON.stringify({ uris: chunks[k] }) });
+  }
+
+  // ---------- Main flow ----------
+  let me = null;
+  async function run(){
+    const btn = $('go'); btn.disabled = true; $('openWrap').classList.add('hidden'); $('results').innerHTML = '';
+    try{
+      progress(0.02);
+      const liked = await getLiked(true);
+      const groups = buildGroups(liked);
+      if(!groups.length) throw new Error('סמן לפחות אפשרות אחת');
+      status('בודק פלייליסטים קיימים…');
+      const map = await loadMyPlaylists(me.id);
+      const done = [];
+      for(let i = 0; i < groups.length; i++){
+        const g = groups[i];
+        status(`שומר "${g.name}" (${i+1}/${groups.length})…`);
+        let mixed = fisherYates(g.tracks);
+        if($('spread').checked) mixed = spreadArtists(mixed);
+        const id = await getOrCreate(map, g.name, g.desc);
+        await writePlaylist(id, mixed.map(t => t.uri));
+        done.push({ name: g.name, count: mixed.length, id });
+        progress(0.5 + 0.5 * (i+1) / groups.length);
+      }
+      status(`✓ ${done.length} פלייליסטים עודכנו מתוך ${liked.length} שירים`, 'ok');
+      $('results').innerHTML = done.map(d =>
+        `<div class="res"><span>${esc(d.name)}<small>${d.count} שירים</small></span>` +
+        `<a href="spotify:playlist:${d.id}" data-web="https://open.spotify.com/playlist/${d.id}">נגן ▶</a></div>`).join('');
+      $('results').querySelectorAll('a').forEach(a => a.onclick = () => setTimeout(() => { location.href = a.dataset.web }, 1200));
+      $('openWrap').classList.remove('hidden');
+      btn.textContent = 'עדכן שוב (סדר חדש)';
+    }catch(e){
+      status('שגיאה: ' + e.message, 'err');
+    }finally{
+      btn.disabled = false; setTimeout(() => progress(null), 800);
+    }
+  }
+
+  // ---------- Shared liked-songs cache ----------
+  let likedCache = null;
+  async function getLiked(fresh=false, report){
+    if(!likedCache || fresh){
+      likedCache = await fetchLiked(report);
+      if(!likedCache.length) throw new Error('לא נמצאו שירים ב"שירים שאהבתי"');
+    }
+    return likedCache;
+  }
+  const norm = s => String(s).toLowerCase()
+    .replace(/\s*[\(\[].*?(remaster|remix|version|edit|mono|stereo|deluxe|feat|ft\.|with|from|live|acoustic|גרסה|מתוך).*?[\)\]]/gi, m => /remix|live|acoustic/i.test(m) ? m : '')
+    .replace(/\s+-\s+.*(remaster|version|edit|mono|stereo|mix\b).*$/i, '')
+    .replace(/\s+-\s+(feat|ft\.).*$/i, '')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+
+  // ---------- Taste profile ----------
+  async function copyProfile(){
+    const st = $('recStatus'); st.className = 'status'; st.textContent = 'בונה פרופיל…';
+    try{
+      const t = await getLiked(false, m => st.textContent = m);
+      const pct = (n) => Math.round(100 * n / t.length) + '%';
+      const count = (f) => t.reduce((m, x) => { const k = f(x); if(k != null) m[k] = (m[k] || 0) + 1; return m }, {});
+      const langs = count(x => x.lang), decades = count(x => x.year ? Math.floor(x.year / 10) * 10 : null);
+      const artists = Object.entries(count(x => x.artist)).sort((a,b) => b[1] - a[1]);
+      const recent = t.slice().sort((a,b) => b.added - a.added).slice(0, 40);
+      const recentSet = new Set(recent.map(x => x.uri));
+      const sample = fisherYates(t.filter(x => !recentSet.has(x.uri))).slice(0, 40);
+      const line = x => `${x.artist} - ${x.name}${x.year ? ' (' + x.year + ')' : ''}`;
+      const txt = [
+        `MY SPOTIFY TASTE PROFILE (${new Date().toISOString().slice(0,10)})`,
+        `Liked songs: ${t.length} | Unique artists: ${artists.length}`,
+        `Languages: ` + Object.entries(langs).map(([k,v]) => `${{he:'Hebrew',other:'Non-Hebrew (mostly English)',ar:'Arabic',ru:'Russian'}[k]} ${pct(v)}`).join(', '),
+        `Decades: ` + Object.keys(decades).sort().map(d => `${d}s ${pct(decades[d])}`).join(', '),
+        ``, `TOP ARTISTS (liked songs count):`,
+        artists.slice(0, 80).map(([a,n]) => `${a} (${n})`).join(', '),
+        ``, `MOST RECENTLY LIKED:`, ...recent.map(line),
+        ``, `RANDOM OLDER LIKES:`, ...sample.map(line),
+        ``, `Please recommend 50-100 songs I don't already have, matching this taste. Do NOT include any song listed above or likely already liked. One per line: Artist - Song`
+      ].join('\n');
+      try{ await navigator.clipboard.writeText(txt); st.textContent = '✓ הפרופיל הועתק. הדבק אותו בצ׳אט עם Claude.'; st.className = 'status ok' }
+      catch{ $('recList').value = txt; $('recList').select(); st.textContent = 'לא הצלחתי להעתיק אוטומטית: הפרופיל בתיבה, סמן והעתק ידנית.' }
+    }catch(e){ st.textContent = 'שגיאה: ' + e.message; st.className = 'status err' }
+  }
+
+  // ---------- Build recommendations playlist ----------
+  async function findTrack(artist, title){
+    const tries = artist ? [`track:${title} artist:${artist}`, `${artist} ${title}`] : [title];
+    for(const q of tries){
+      const r = await api('/search?type=track&limit=5&q=' + encodeURIComponent(q));
+      const items = (r && r.tracks && r.tracks.items) || [];
+      if(!items.length) continue;
+      const want = norm(title);
+      return items.find(x => norm(x.name).includes(want) || want.includes(norm(x.name))) || items[0];
+    }
+    return null;
+  }
+  async function buildRecs(){
+    const btn = $('buildRecs'), st = $('recStatus'); btn.disabled = true; $('recResult').innerHTML = ''; st.className = 'status';
+    try{
+      const lines = $('recList').value.split('\n')
+        .map(l => l.replace(/^\s*(\d+[\.\)]|[-•]|\*)\s{0,}/, '').trim())
+        .filter(l => l && !/^MY SPOTIFY|^Liked songs|^Languages|^Decades|^TOP ARTISTS|^MOST RECENTLY|^RANDOM OLDER|^Please recommend/i.test(l));
+      if(!lines.length) throw new Error('הדבק קודם רשימת שירים');
+      const liked = await getLiked(false, m => st.textContent = m);
+      const likedUris = new Set(liked.map(x => x.uri));
+      const likedKeys = new Set(liked.map(x => norm(x.artist) + '|' + norm(x.name)));
+      // songs recommended in earlier weeks are skipped too (kept on this device)
+      let past = []; try{ past = JSON.parse(store.get('ts_rec_history') || '[]') }catch{}
+      const pastSet = new Set(past);
+      const uris = [], missing = []; let skipped = 0, repeats = 0;
+      for(let i = 0; i < lines.length; i++){
+        st.textContent = `מחפש ${i+1} / ${lines.length}…`;
+        const m = lines[i].match(/^(.+?)\s+[-–—]\s+(.+)$/);
+        const artist = m ? m[1].trim() : '', title = (m ? m[2] : lines[i]).replace(/\s*\(\d{4}\)\s*$/, '').trim();
+        const tr = await findTrack(artist, title);
+        if(!tr){ missing.push(lines[i]); continue }
+        const key = norm((tr.artists[0] || {}).name || '') + '|' + norm(tr.name);
+        if(likedUris.has(tr.uri) || likedKeys.has(key) || uris.includes(tr.uri)){ skipped++; continue }
+        if(pastSet.has(tr.uri)){ repeats++; continue }
+        uris.push(tr.uri);
+      }
+      store.set('ts_rec_history', JSON.stringify(past.concat(uris).slice(-3000)));
+      if(!uris.length) throw new Error(`אין שירים חדשים להוספה (${skipped} כבר אהבת, ${repeats} הומלצו בעבר, ${missing.length} לא נמצאו)`);
+      st.textContent = 'שומר פלייליסט…';
+      const map = await loadMyPlaylists(me.id);
+      const name = '🎁 ההמלצות של השבוע';
+      const id = await getOrCreate(map, name, 'המלצות שבועיות לפי הטעם שלי. מה שאוהבים, מסמנים בלב.');
+      await writePlaylist(id, fisherYates(uris));
+      st.textContent = `✓ ${uris.length} שירים חדשים נשמרו` + (skipped ? ` · ${skipped} כבר היו אצלך ודולגו` : '') + (repeats ? ` · ${repeats} הומלצו כבר בשבוע קודם` : '') + (missing.length ? ` · ${missing.length} לא נמצאו` : '');
+      st.className = 'status ok';
+      $('recResult').innerHTML = `<div class="res"><span>${esc(name)}<small>${uris.length} שירים</small></span><a href="spotify:playlist:${id}" data-web="https://open.spotify.com/playlist/${id}">נגן ▶</a></div>` +
+        (missing.length ? `<div class="miss">לא נמצאו: ${missing.map(esc).join(' · ')}</div>` : '');
+      const a = $('recResult').querySelector('a'); a.onclick = () => setTimeout(() => { location.href = a.dataset.web }, 1200);
+    }catch(e){ st.textContent = 'שגיאה: ' + e.message; st.className = 'status err' }
+    finally{ btn.disabled = false }
+  }
+
+  // ---------- Duplicates ----------
+  async function findDups(){
+    const st = $('dupStatus'); st.className = 'status'; $('dupList').innerHTML = ''; $('removeDups').classList.add('hidden');
+    try{
+      const t = await getLiked(true, m => st.textContent = m);
+      st.textContent = 'מחפש…';
+      const groups = {};
+      for(const x of t){ const k = norm(x.artist) + '|' + norm(x.name); (groups[k] = groups[k] || []).push(x) }
+      const dups = Object.values(groups).filter(g => g.length > 1).map(g => g.sort((a,b) => a.added - b.added));
+      if(!dups.length){ st.textContent = '✓ אין כפילויות. הרשימה נקייה'; st.className = 'status ok'; return }
+      st.textContent = `נמצאו ${dups.length} שירים כפולים. סמן מה להסיר:`;
+      $('dupList').innerHTML = dups.map(g => {
+        const [keep, ...extra] = g;
+        return `<div class="dup"><div class="keep">נשאר: <b style="color:var(--text)">${esc(keep.name)}</b> · ${esc(keep.artist)}${keep.year ? ' · ' + keep.year : ''}</div>` +
+          extra.map(x => `<label><input type="checkbox" checked data-uri="${x.uri}"> להסיר: ${esc(x.name)}${x.year ? ' · ' + x.year : ''}</label>`).join('') + '</div>';
+      }).join('');
+      $('removeDups').classList.remove('hidden'); $('removeDups').textContent = 'הסר את המסומנים'; $('removeDups').dataset.armed = '';
+    }catch(e){ st.textContent = 'שגיאה: ' + e.message; st.className = 'status err' }
+  }
+  async function removeDups(){
+    const btn = $('removeDups'), st = $('dupStatus');
+    const uris = [...$('dupList').querySelectorAll('input[type=checkbox]:checked')].map(c => c.dataset.uri);
+    if(!uris.length){ st.textContent = 'לא סומן כלום'; return }
+    if(!btn.dataset.armed){ btn.dataset.armed = '1'; btn.textContent = `לחץ שוב לאישור: הסרת ${uris.length} שירים מ"שירים שאהבתי"`; return }
+    btn.disabled = true;
+    try{
+      for(let i = 0; i < uris.length; i += 40){
+        await api('/me/library?uris=' + encodeURIComponent(uris.slice(i, i + 40).join(',')), { method:'DELETE' });
+        st.textContent = `מסיר… ${Math.min(i + 40, uris.length)} / ${uris.length}`;
+      }
+      st.textContent = `✓ הוסרו ${uris.length} כפילויות`; st.className = 'status ok';
+      $('dupList').innerHTML = ''; btn.classList.add('hidden'); likedCache = null;
+    }catch(e){ st.textContent = 'שגיאה: ' + e.message + ' (אולי צריך להתנתק ולהתחבר מחדש)'; st.className = 'status err' }
+    finally{ btn.disabled = false; btn.dataset.armed = '' }
+  }
+
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  // remember checkbox choices
+  ['optAll','optNew','optLang','optDecade','spread'].forEach(id => {
+    const v = store.get('ts_' + id); if(v !== null) $(id).checked = v === '1';
+    $(id).onchange = () => store.set('ts_' + id, $(id).checked ? '1' : '0');
+  });
+
+  // ---------- Boot ----------
+  $('redir').textContent = REDIRECT;
+  $('saveCid').onclick = () => { const v = $('cid').value.trim(); if(v){ store.set('ts_client_id', v); show('login') } };
+  $('loginBtn').onclick = login;
+  $('logout').onclick = e => { e.preventDefault(); logout() };
+  $('go').onclick = run;
+  $('copyProfile').onclick = copyProfile;
+  $('buildRecs').onclick = buildRecs;
+  $('findDups').onclick = findDups;
+  $('removeDups').onclick = removeDups;
+
+  (async () => {
+    if(!clientId()){ show('setup'); return }
+    try{
+      await handleRedirect();
+      if(!(await token())){ show('login'); return }
+      me = await api('/me');
+      $('me').textContent = 'מחובר: ' + (me.display_name || me.id);
+      show('app');
+    }catch(e){
+      show('login'); const s = document.createElement('p'); s.className='status err'; s.textContent = e.message; $('login').appendChild(s);
+    }
+  })();
+})();
+</script>
+</body>
+</html>
