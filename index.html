@@ -54,6 +54,21 @@
   .tip{font-size:13.5px;color:var(--muted);line-height:1.6}
   .tip b{color:var(--warn);font-weight:600}
   code{direction:ltr;unicode-bidi:embed;background:#0c100e;padding:2px 6px;border-radius:6px;font-size:13px}
+  .pl{padding:14px 0;border-bottom:1px solid var(--line)}
+  .pl:last-child{border-bottom:0}
+  .pl-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+  .pl-head small{color:var(--muted);display:block;font-size:13px}
+  .pl-head a{color:var(--muted);font-size:13px;flex:none}
+  .pl-from{display:flex;gap:8px;margin-top:8px}
+  .pl-from input{width:110px;flex:none;padding:12px;border-radius:999px;border:1px solid var(--line);
+    background:#0c100e;color:var(--text);font:inherit;font-size:16px;text-align:center}
+  .pl-from button{margin:0;padding:12px 16px}
+  .rec{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px}
+  .rec:last-child{border-bottom:0}
+  .rec small{color:var(--muted);display:block;font-size:12.5px}
+  .rec button{width:auto;flex:none;padding:8px 13px;font-size:18px;background:transparent;border:1px solid var(--line);color:var(--text)}
+  .rec button.on{border-color:var(--accent)}
+  details summary{cursor:pointer;color:var(--muted);font-size:14px;margin-top:12px}
 </style>
 </head>
 <body>
@@ -77,6 +92,10 @@
   <!-- Main -->
   <section id="app" class="hidden">
     <div class="who"><span id="me">…</span><a href="#" id="logout">התנתק</a></div>
+    <div id="reauth" class="card hidden">
+      <p style="margin-top:0">יש יכולות חדשות (נגינה ממקום מסוים, ❤️ מהאפליקציה). צריך להתחבר פעם אחת מחדש כדי לאשר אותן.</p>
+      <button class="primary" id="reauthBtn">התחבר מחדש</button>
+    </div>
     <div class="card">
       <label class="row"><span>🔀 ערבוב כללי<small>כל השירים שאהבת בסדר אקראי</small></span>
         <input type="checkbox" id="optAll" checked></label>
@@ -93,8 +112,11 @@
       <div class="status" id="status"></div>
     </div>
     <div id="openWrap" class="card hidden">
+      <h2>▶ נגינה</h2>
+      <p class="tip" style="margin-top:0">מכוונים <b>לפני הנסיעה</b>: "המשך" מתחיל מהשיר שאחרי זה שבו עצרת, או מקלידים מספר שיר. ספוטיפיי צריך להיות פתוח בטלפון (גם ברקע).</p>
       <div id="results"></div>
-      <p class="tip" style="text-align:center;margin:14px 0 0"><b>חשוב:</b> נגן כשהערבוב (🔀) בספוטיפיי <b>כבוי</b>. הסדר כבר אקראי.<br>שירים חדשים שתסמן בלב ייכנסו בעדכון הבא.</p>
+      <div class="status" id="playStatus"></div>
+      <p class="tip" style="text-align:center;margin:14px 0 0">הערבוב של ספוטיפיי (🔀) נכבה אוטומטית. הסדר כבר אקראי.<br>שירים חדשים שתסמן בלב ייכנסו בעדכון הבא.</p>
     </div>
 
     <!-- Recommendations -->
@@ -103,6 +125,8 @@
       <p class="tip" style="margin-top:0">1. העתק את פרופיל הטעם ושלח ל־Claude.<br>2. הדבק כאן את הרשימה שקיבלת (שורה לכל שיר, בפורמט: אמן - שיר).<br>שירים שכבר אהבת מדולגים אוטומטית.</p>
       <button class="ghost" id="copyProfile" style="margin-top:0">📋 העתק פרופיל טעם</button>
       <textarea id="recList" rows="7" placeholder="Artist - Song&#10;אמן - שיר"></textarea>
+      <label class="row" style="padding-top:0"><span>הסתר מהספרייה<small>כך יופיע ➕ (ולא ✓) ליד השירים, ולחיצה אחת עליו מוסיפה ל"שירים שאהבתי", גם באנדרואיד אוטו</small></span>
+        <input type="checkbox" id="recHide" checked></label>
       <button class="primary" id="buildRecs">בנה פלייליסט המלצות</button>
       <div class="status" id="recStatus"></div>
       <div id="recResult"></div>
@@ -123,7 +147,9 @@
 <script>
 (() => {
   const PLAYLIST_NAME = '🔀 Shuffled';
-  const SCOPES = 'user-library-read user-library-modify playlist-read-private playlist-modify-private playlist-modify-public';
+  const PLAYER_SCOPES = ['user-modify-playback-state', 'user-read-playback-state', 'user-read-recently-played'];
+  const SCOPES = 'user-library-read user-library-modify playlist-read-private playlist-modify-private playlist-modify-public ' + PLAYER_SCOPES.join(' ');
+  const REC_NAME = '🎁 ההמלצות של השבוע';
   const REDIRECT = location.origin + location.pathname;
   // Default Client ID (filled in after creating the Spotify app). Can be overridden in localStorage.
   const DEFAULT_CLIENT_ID = 'c644d6cc6cdd47f896766e15560d15db';
@@ -162,7 +188,9 @@
     store.set('ts_access', j.access_token);
     store.set('ts_expires', String(Date.now() + (j.expires_in - 60) * 1000));
     if(j.refresh_token) store.set('ts_refresh', j.refresh_token);
+    if(j.scope) store.set('ts_scope', j.scope);
   }
+  const hasPlayerScopes = () => { const s = (store.get('ts_scope') || '').split(' '); return PLAYER_SCOPES.every(x => s.includes(x)) };
 
   async function handleRedirect(){
     const q = new URLSearchParams(location.search);
@@ -333,22 +361,127 @@
         let mixed = fisherYates(g.tracks);
         if($('spread').checked) mixed = spreadArtists(mixed);
         const id = await getOrCreate(map, g.name, g.desc);
-        await writePlaylist(id, mixed.map(t => t.uri));
+        const uris = mixed.map(t => t.uri);
+        await writePlaylist(id, uris);
+        store.set('ts_order_' + id, JSON.stringify(uris));
+        store.del('ts_pos_' + id); // new order, old position is meaningless
         done.push({ name: g.name, count: mixed.length, id });
         progress(0.5 + 0.5 * (i+1) / groups.length);
       }
       status(`✓ ${done.length} פלייליסטים עודכנו מתוך ${liked.length} שירים`, 'ok');
-      $('results').innerHTML = done.map(d =>
-        `<div class="res"><span>${esc(d.name)}<small>${d.count} שירים</small></span>` +
-        `<a href="spotify:playlist:${d.id}" data-web="https://open.spotify.com/playlist/${d.id}">נגן ▶</a></div>`).join('');
-      $('results').querySelectorAll('a').forEach(a => a.onclick = () => setTimeout(() => { location.href = a.dataset.web }, 1200));
-      $('openWrap').classList.remove('hidden');
+      store.set('ts_lists', JSON.stringify(done));
+      renderLists(done);
       btn.textContent = 'עדכן שוב (סדר חדש)';
     }catch(e){
       status('שגיאה: ' + e.message, 'err');
     }finally{
       btn.disabled = false; setTimeout(() => progress(null), 800);
     }
+  }
+
+  // ---------- Playback (start from a given song / resume) ----------
+  const pStatus = (msg, cls='') => { const s = $('playStatus'); s.textContent = msg; s.className = 'status ' + cls };
+  const openInSpotify = id => { location.href = 'spotify:playlist:' + id; setTimeout(() => { location.href = 'https://open.spotify.com/playlist/' + id }, 1200) };
+
+  function renderLists(lists){
+    if(!lists || !lists.length) return;
+    $('results').innerHTML = lists.map(d =>
+      `<div class="pl" data-id="${d.id}"><div class="pl-head"><span>${esc(d.name)}<small>${d.count} שירים</small></span>` +
+      `<a href="#" data-act="open">פתח בספוטיפיי</a></div>` +
+      `<button class="primary" data-act="resume">▶ המשך מאיפה שעצרתי</button>` +
+      `<div class="pl-from"><input type="number" inputmode="numeric" min="1" max="${d.count}" placeholder="מס׳ שיר">` +
+      `<button class="ghost" data-act="from">נגן משיר זה</button></div></div>`).join('');
+    $('openWrap').classList.remove('hidden');
+  }
+  $('results').addEventListener('click', async e => {
+    const el = e.target.closest('[data-act]'); if(!el) return;
+    e.preventDefault();
+    const row = el.closest('.pl'), id = row.dataset.id, act = el.dataset.act;
+    if(act === 'open') return openInSpotify(id);
+    if(!hasPlayerScopes()){ pStatus('צריך קודם "התחבר מחדש" (למעלה) כדי לאשר שליטה בנגינה', 'err'); return }
+    el.disabled = true;
+    try{
+      if(act === 'resume') await resume(id);
+      else{
+        const n = parseInt(row.querySelector('input').value, 10);
+        if(!(n >= 1)) throw new Error('הקלד מספר שיר');
+        await playAt(id, n - 1);
+      }
+    }catch(err){ pStatus('שגיאה: ' + err.message, 'err') }
+    finally{ el.disabled = false }
+  });
+
+  async function getOrder(id){
+    let o = null; try{ o = JSON.parse(store.get('ts_order_' + id) || 'null') }catch{}
+    if(o && o.length) return o;
+    o = []; let url = `/playlists/${id}/items?limit=100`;
+    while(url){
+      const page = await api(url);
+      for(const it of (page && page.items) || []){ const t = it.track || it.item; if(t && t.uri) o.push(t.uri) }
+      url = page && page.next;
+    }
+    store.set('ts_order_' + id, JSON.stringify(o));
+    return o;
+  }
+
+  async function playAt(id, pos, quiet){
+    const order = await getOrder(id);
+    if(order.length) pos = Math.max(0, Math.min(pos, order.length - 1));
+    const body = JSON.stringify({ context_uri: 'spotify:playlist:' + id, offset: { position: pos }, position_ms: 0 });
+    let device = '';
+    try{ await api('/me/player/play', { method:'PUT', body }) }
+    catch(e){
+      if(!/active device|NO_ACTIVE_DEVICE|not found|404/i.test(e.message)) throw e;
+      const d = await api('/me/player/devices');
+      const devs = (d && d.devices) || [];
+      const dev = devs.find(x => x.type === 'Smartphone') || devs[0];
+      if(!dev) throw new Error('ספוטיפיי לא פתוח. פתח אותו בטלפון (אפשר להשאיר ברקע) ונסה שוב');
+      device = dev.id;
+      await api('/me/player/play?device_id=' + device, { method:'PUT', body });
+    }
+    // keep our true-random order: turn Spotify's own shuffle off
+    try{ await api('/me/player/shuffle?state=false' + (device ? '&device_id=' + device : ''), { method:'PUT' }) }catch{}
+    store.set('ts_pos_' + id, String(pos));
+    if(!quiet) pStatus(`✓ מנגן משיר ${pos + 1}${order.length ? ' מתוך ' + order.length : ''}`, 'ok');
+  }
+
+  async function resume(id){
+    const ctx = 'spotify:playlist:' + id;
+    pStatus('מחפש איפה עצרת…');
+    const order = await getOrder(id);
+    try{
+      const cur = await api('/me/player');
+      if(cur && cur.is_playing && cur.context && cur.context.uri === ctx && cur.item){
+        const i = order.indexOf(cur.item.uri);
+        pStatus(`כבר מתנגן${i >= 0 ? ' (שיר ' + (i + 1) + ')' : ''}`, 'ok'); return;
+      }
+    }catch{}
+    let pos = -1;
+    try{
+      const rp = await api('/me/player/recently-played?limit=50');
+      const it = ((rp && rp.items) || []).find(x => x.context && x.context.uri === ctx && x.track);
+      if(it){ const i = order.indexOf(it.track.uri); if(i >= 0) pos = i + 1 }
+    }catch{}
+    if(pos < 0){ const s = parseInt(store.get('ts_pos_' + id), 10); pos = s >= 0 ? s : 0 }
+    if(order.length && pos >= order.length) pos = 0; // finished the list, start over
+    await playAt(id, pos);
+  }
+
+  async function loadSavedLists(){
+    let lists = null; try{ lists = JSON.parse(store.get('ts_lists') || 'null') }catch{}
+    if(!lists || !lists.length){
+      lists = [];
+      let url = '/me/playlists?limit=50';
+      while(url){
+        const page = await api(url);
+        for(const p of (page && page.items) || [])
+          if(p && p.owner && p.owner.id === me.id && /^🔀/.test(p.name))
+            lists.push({ name: p.name, id: p.id, count: ((p.items || p.tracks || {}).total) || 0 });
+        url = page && page.next;
+      }
+      if(lists.length) store.set('ts_lists', JSON.stringify(lists));
+    }
+    renderLists(lists);
   }
 
   // ---------- Shared liked-songs cache ----------
@@ -420,7 +553,7 @@
       // songs recommended in earlier weeks are skipped too (kept on this device)
       let past = []; try{ past = JSON.parse(store.get('ts_rec_history') || '[]') }catch{}
       const pastSet = new Set(past);
-      const uris = [], missing = []; let skipped = 0, repeats = 0;
+      const uris = [], missing = [], info = {}; let skipped = 0, repeats = 0;
       for(let i = 0; i < lines.length; i++){
         st.textContent = `מחפש ${i+1} / ${lines.length}…`;
         const m = lines[i].match(/^(.+?)\s+[-–—]\s+(.+)$/);
@@ -431,22 +564,83 @@
         if(likedUris.has(tr.uri) || likedKeys.has(key) || uris.includes(tr.uri)){ skipped++; continue }
         if(pastSet.has(tr.uri)){ repeats++; continue }
         uris.push(tr.uri);
+        info[tr.uri] = { uri: tr.uri, name: tr.name, artist: (tr.artists[0] || {}).name || '' };
       }
       store.set('ts_rec_history', JSON.stringify(past.concat(uris).slice(-3000)));
       if(!uris.length) throw new Error(`אין שירים חדשים להוספה (${skipped} כבר אהבת, ${repeats} הומלצו בעבר, ${missing.length} לא נמצאו)`);
       st.textContent = 'שומר פלייליסט…';
-      const map = await loadMyPlaylists(me.id);
-      const name = '🎁 ההמלצות של השבוע';
-      const id = await getOrCreate(map, name, 'המלצות שבועיות לפי הטעם שלי. מה שאוהבים, מסמנים בלב.');
-      await writePlaylist(id, fisherYates(uris));
-      st.textContent = `✓ ${uris.length} שירים חדשים נשמרו` + (skipped ? ` · ${skipped} כבר היו אצלך ודולגו` : '') + (repeats ? ` · ${repeats} הומלצו כבר בשבוע קודם` : '') + (missing.length ? ` · ${missing.length} לא נמצאו` : '');
+      const order = fisherYates(uris);
+      const desc = 'המלצות שבועיות לפי הטעם שלי. מה שאוהבים, מסמנים ב־➕.';
+      // reuse the same playlist every week (it may be hidden from the library, so look it up by saved id first)
+      let id = store.get('ts_rec_pid'), written = false;
+      if(!id){ const map = await loadMyPlaylists(me.id); id = map[REC_NAME] || null }
+      if(id){ try{ await writePlaylist(id, order); written = true }catch{} }
+      if(!written){
+        const created = await api('/me/playlists', { method:'POST', body: JSON.stringify({ name: REC_NAME, public:false, description: desc }) });
+        id = created.id; await writePlaylist(id, order);
+      }
+      store.set('ts_rec_pid', id);
+      store.set('ts_order_' + id, JSON.stringify(order));
+      let hideNote = '';
+      try{ await setInLibrary(id, !$('recHide').checked) }
+      catch{ hideNote = ' · לא הצלחתי להסתיר מהספרייה' }
+      const tracks = order.map(u => info[u]);
+      store.set('ts_rec_tracks', JSON.stringify(tracks));
+      store.set('ts_rec_missing', JSON.stringify(missing));
+      st.textContent = `✓ ${uris.length} שירים חדשים נשמרו` + (skipped ? ` · ${skipped} כבר היו אצלך ודולגו` : '') + (repeats ? ` · ${repeats} הומלצו כבר בשבוע קודם` : '') + (missing.length ? ` · ${missing.length} לא נמצאו` : '') + hideNote;
       st.className = 'status ok';
-      $('recResult').innerHTML = `<div class="res"><span>${esc(name)}<small>${uris.length} שירים</small></span><a href="spotify:playlist:${id}" data-web="https://open.spotify.com/playlist/${id}">נגן ▶</a></div>` +
-        (missing.length ? `<div class="miss">לא נמצאו: ${missing.map(esc).join(' · ')}</div>` : '');
-      const a = $('recResult').querySelector('a'); a.onclick = () => setTimeout(() => { location.href = a.dataset.web }, 1200);
+      renderRecs(id, tracks, missing);
     }catch(e){ st.textContent = 'שגיאה: ' + e.message; st.className = 'status err' }
     finally{ btn.disabled = false }
   }
+
+  // Spotify shows ✓ (not ➕) on any song that sits in a playlist in your library.
+  // Taking the recommendations playlist out of the library brings the one-tap ➕ back. It still plays normally.
+  async function setInLibrary(id, inLib){
+    const uri = 'spotify:playlist:' + id;
+    try{ await api('/me/library?uris=' + encodeURIComponent(uri), { method: inLib ? 'PUT' : 'DELETE' }) }
+    catch{ await api(`/playlists/${id}/followers`, { method: inLib ? 'PUT' : 'DELETE' }) }
+  }
+
+  async function likeTrack(uri){
+    try{ await api('/me/library?uris=' + encodeURIComponent(uri), { method:'PUT' }) }
+    catch{ await api('/me/tracks?ids=' + uri.split(':').pop(), { method:'PUT' }) }
+  }
+
+  function renderRecs(id, tracks, missing){
+    if(!id || !tracks || !tracks.length) return;
+    const liked = new Set(JSON.parse(store.get('ts_rec_liked') || '[]'));
+    $('recResult').innerHTML =
+      `<div class="pl" data-id="${id}" style="border:0;padding-bottom:4px"><div class="pl-head"><span>${esc(REC_NAME)}<small>${tracks.length} שירים</small></span>` +
+      `<a href="#" data-act="open">פתח בספוטיפיי</a></div>` +
+      `<button class="primary" data-act="playrec">▶ נגן את ההמלצות</button></div>` +
+      `<details><summary>❤️ לסמן מכאן (${tracks.length})</summary><div id="recRows">` +
+      tracks.map(t => `<div class="rec"><span>${esc(t.name)}<small>${esc(t.artist)}</small></span>` +
+        `<button data-uri="${t.uri}" class="${liked.has(t.uri) ? 'on' : ''}">${liked.has(t.uri) ? '💚' : '🤍'}</button></div>`).join('') +
+      `</div></details>` +
+      (missing && missing.length ? `<div class="miss">לא נמצאו: ${missing.map(esc).join(' · ')}</div>` : '');
+  }
+  $('recResult').addEventListener('click', async e => {
+    const el = e.target.closest('[data-act],[data-uri]'); if(!el) return;
+    e.preventDefault();
+    const st = $('recStatus'); st.className = 'status';
+    if(el.dataset.act === 'open') return openInSpotify(el.closest('.pl').dataset.id);
+    el.disabled = true;
+    try{
+      if(el.dataset.act === 'playrec'){
+        if(!hasPlayerScopes()) throw new Error('צריך קודם "התחבר מחדש" (למעלה) כדי לאשר שליטה בנגינה');
+        await playAt(el.closest('.pl').dataset.id, 0, true);
+        st.textContent = '✓ מנגן. שיר שאהבת? לחיצה על ➕ בספוטיפיי (גם באוטו)'; st.className = 'status ok';
+      }else if(el.dataset.uri && !el.classList.contains('on')){
+        await likeTrack(el.dataset.uri);
+        el.classList.add('on'); el.textContent = '💚';
+        const liked = JSON.parse(store.get('ts_rec_liked') || '[]'); liked.push(el.dataset.uri);
+        store.set('ts_rec_liked', JSON.stringify(liked.slice(-500)));
+        likedCache = null;
+      }
+    }catch(err){ st.textContent = 'שגיאה: ' + err.message; st.className = 'status err' }
+    finally{ el.disabled = false }
+  });
 
   // ---------- Duplicates ----------
   async function findDups(){
@@ -487,7 +681,7 @@
   const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
   // remember checkbox choices
-  ['optAll','optNew','optLang','optDecade','spread'].forEach(id => {
+  ['optAll','optNew','optLang','optDecade','spread','recHide'].forEach(id => {
     const v = store.get('ts_' + id); if(v !== null) $(id).checked = v === '1';
     $(id).onchange = () => store.set('ts_' + id, $(id).checked ? '1' : '0');
   });
@@ -496,6 +690,7 @@
   $('redir').textContent = REDIRECT;
   $('saveCid').onclick = () => { const v = $('cid').value.trim(); if(v){ store.set('ts_client_id', v); show('login') } };
   $('loginBtn').onclick = login;
+  $('reauthBtn').onclick = login;
   $('logout').onclick = e => { e.preventDefault(); logout() };
   $('go').onclick = run;
   $('copyProfile').onclick = copyProfile;
@@ -511,6 +706,9 @@
       me = await api('/me');
       $('me').textContent = 'מחובר: ' + (me.display_name || me.id);
       show('app');
+      $('reauth').classList.toggle('hidden', hasPlayerScopes());
+      try{ renderRecs(store.get('ts_rec_pid'), JSON.parse(store.get('ts_rec_tracks') || 'null'), JSON.parse(store.get('ts_rec_missing') || '[]')) }catch{}
+      loadSavedLists().catch(() => {});
     }catch(e){
       show('login'); const s = document.createElement('p'); s.className='status err'; s.textContent = e.message; $('login').appendChild(s);
     }
