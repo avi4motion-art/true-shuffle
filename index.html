@@ -556,9 +556,12 @@
       const liked = await getLiked(false, m => st.textContent = m);
       const likedUris = new Set(liked.map(x => x.uri));
       const likedKeys = new Set(liked.map(x => norm(x.artist) + '|' + norm(x.name)));
-      // songs recommended in earlier weeks are skipped too (kept on this device)
+      // songs recommended in earlier weeks are skipped too (kept on this device).
+      // Entries are {u, d}; anything from the last 3 days counts as this week's list, so re-preparing it is fine.
       let past = []; try{ past = JSON.parse(store.get('ts_rec_history') || '[]') }catch{}
-      const pastSet = new Set(past);
+      past = past.map(x => typeof x === 'string' ? { u: x, d: 0 } : x);
+      const weekAgo = Date.now() - 3 * 864e5;
+      const pastSet = new Set(past.filter(x => x.d < weekAgo).map(x => x.u));
       const uris = [], missing = [], info = {}; let skipped = 0, repeats = 0;
       for(let i = 0; i < lines.length; i++){
         st.textContent = `מחפש ${i+1} / ${lines.length}…`;
@@ -572,7 +575,8 @@
         uris.push(tr.uri);
         info[tr.uri] = { uri: tr.uri, name: tr.name, artist: (tr.artists[0] || {}).name || '' };
       }
-      store.set('ts_rec_history', JSON.stringify(past.concat(uris).slice(-3000)));
+      const now = Date.now(), fresh = new Set(uris);
+      store.set('ts_rec_history', JSON.stringify(past.filter(x => !fresh.has(x.u)).concat(uris.map(u => ({ u, d: now }))).slice(-3000)));
       if(!uris.length) throw new Error(`אין שירים חדשים להוספה (${skipped} כבר אהבת, ${repeats} הומלצו בעבר, ${missing.length} לא נמצאו)`);
       const order = fisherYates(uris);
       const tracks = order.map(u => info[u]);
