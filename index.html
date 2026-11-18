@@ -125,9 +125,8 @@
       <p class="tip" style="margin-top:0">1. העתק את פרופיל הטעם ושלח ל־Claude.<br>2. הדבק כאן את הרשימה שקיבלת (שורה לכל שיר, בפורמט: אמן - שיר).<br>שירים שכבר אהבת מדולגים אוטומטית.</p>
       <button class="ghost" id="copyProfile" style="margin-top:0">📋 העתק פרופיל טעם</button>
       <textarea id="recList" rows="7" placeholder="Artist - Song&#10;אמן - שיר"></textarea>
-      <label class="row" style="padding-top:0"><span>הסתר מהספרייה<small>כך יופיע ➕ (ולא ✓) ליד השירים, ולחיצה אחת עליו מוסיפה ל"שירים שאהבתי", גם באנדרואיד אוטו</small></span>
-        <input type="checkbox" id="recHide" checked></label>
-      <button class="primary" id="buildRecs">בנה פלייליסט המלצות</button>
+      <p class="tip" style="margin-top:0">ההמלצות לא נשמרות כפלייליסט בספרייה (אחרת ספוטיפיי מציג ✓ במקום ➕). הן מתנגנות ישירות מכאן, ובספוטיפיי ובאנדרואיד אוטו יופיע ➕: לחיצה אחת מוסיפה ל"שירים שאהבתי".</p>
+      <button class="primary" id="buildRecs">הכן את ההמלצות</button>
       <div class="status" id="recStatus"></div>
       <div id="recResult"></div>
     </div>
@@ -424,23 +423,30 @@
     return o;
   }
 
-  async function playAt(id, pos, quiet){
-    const order = await getOrder(id);
-    if(order.length) pos = Math.max(0, Math.min(pos, order.length - 1));
-    const body = JSON.stringify({ context_uri: 'spotify:playlist:' + id, offset: { position: pos }, position_ms: 0 });
+  // a device to play on: the active one, else the phone (Spotify must be open, even in the background)
+  async function activeDevice(){
+    const d = await api('/me/player/devices');
+    const devs = (d && d.devices) || [];
+    const dev = devs.find(x => x.is_active) || devs.find(x => x.type === 'Smartphone') || devs[0];
+    if(!dev) throw new Error('ספוטיפיי לא פתוח. פתח אותו בטלפון (אפשר להשאיר ברקע) ונסה שוב');
+    return dev.is_active ? '' : dev.id;
+  }
+  async function startPlayback(body){
     let device = '';
     try{ await api('/me/player/play', { method:'PUT', body }) }
     catch(e){
       if(!/active device|NO_ACTIVE_DEVICE|not found|404/i.test(e.message)) throw e;
-      const d = await api('/me/player/devices');
-      const devs = (d && d.devices) || [];
-      const dev = devs.find(x => x.type === 'Smartphone') || devs[0];
-      if(!dev) throw new Error('ספוטיפיי לא פתוח. פתח אותו בטלפון (אפשר להשאיר ברקע) ונסה שוב');
-      device = dev.id;
-      await api('/me/player/play?device_id=' + device, { method:'PUT', body });
+      device = await activeDevice();
+      await api('/me/player/play' + (device ? '?device_id=' + device : ''), { method:'PUT', body });
     }
     // keep our true-random order: turn Spotify's own shuffle off
     try{ await api('/me/player/shuffle?state=false' + (device ? '&device_id=' + device : ''), { method:'PUT' }) }catch{}
+  }
+
+  async function playAt(id, pos, quiet){
+    const order = await getOrder(id);
+    if(order.length) pos = Math.max(0, Math.min(pos, order.length - 1));
+    await startPlayback(JSON.stringify({ context_uri: 'spotify:playlist:' + id, offset: { position: pos }, position_ms: 0 }));
     store.set('ts_pos_' + id, String(pos));
     if(!quiet) pStatus(`✓ מנגן משיר ${pos + 1}${order.length ? ' מתוך ' + order.length : ''}`, 'ok');
   }
@@ -568,34 +574,20 @@
       }
       store.set('ts_rec_history', JSON.stringify(past.concat(uris).slice(-3000)));
       if(!uris.length) throw new Error(`אין שירים חדשים להוספה (${skipped} כבר אהבת, ${repeats} הומלצו בעבר, ${missing.length} לא נמצאו)`);
-      st.textContent = 'שומר פלייליסט…';
       const order = fisherYates(uris);
-      const desc = 'המלצות שבועיות לפי הטעם שלי. מה שאוהבים, מסמנים ב־➕.';
-      // reuse the same playlist every week (it may be hidden from the library, so look it up by saved id first)
-      let id = store.get('ts_rec_pid'), written = false;
-      if(!id){ const map = await loadMyPlaylists(me.id); id = map[REC_NAME] || null }
-      if(id){ try{ await writePlaylist(id, order); written = true }catch{} }
-      if(!written){
-        const created = await api('/me/playlists', { method:'POST', body: JSON.stringify({ name: REC_NAME, public:false, description: desc }) });
-        id = created.id; await writePlaylist(id, order);
-      }
-      store.set('ts_rec_pid', id);
-      store.set('ts_order_' + id, JSON.stringify(order));
-      let hideNote = '';
-      try{ await setInLibrary(id, !$('recHide').checked) }
-      catch{ hideNote = ' · לא הצלחתי להסתיר מהספרייה' }
       const tracks = order.map(u => info[u]);
       store.set('ts_rec_tracks', JSON.stringify(tracks));
       store.set('ts_rec_missing', JSON.stringify(missing));
-      st.textContent = `✓ ${uris.length} שירים חדשים נשמרו` + (skipped ? ` · ${skipped} כבר היו אצלך ודולגו` : '') + (repeats ? ` · ${repeats} הומלצו כבר בשבוע קודם` : '') + (missing.length ? ` · ${missing.length} לא נמצאו` : '') + hideNote;
+      store.set('ts_rec_liked', '[]');
+      st.textContent = `✓ ${uris.length} המלצות חדשות מוכנות` + (skipped ? ` · ${skipped} כבר היו אצלך ודולגו` : '') + (repeats ? ` · ${repeats} הומלצו כבר בשבוע קודם` : '') + (missing.length ? ` · ${missing.length} לא נמצאו` : '');
       st.className = 'status ok';
-      renderRecs(id, tracks, missing);
+      renderRecs(tracks, missing);
     }catch(e){ st.textContent = 'שגיאה: ' + e.message; st.className = 'status err' }
     finally{ btn.disabled = false }
   }
 
-  // Spotify shows ✓ (not ➕) on any song that sits in a playlist in your library.
-  // Taking the recommendations playlist out of the library brings the one-tap ➕ back. It still plays normally.
+  // Spotify shows ✓ (not ➕) on any song that sits in a playlist in your library,
+  // so recommendations are played as a plain list of songs (no playlist) instead.
   async function setInLibrary(id, inLib){
     const uri = 'spotify:playlist:' + id;
     try{ await api('/me/library?uris=' + encodeURIComponent(uri), { method: inLib ? 'PUT' : 'DELETE' }) }
@@ -607,30 +599,41 @@
     catch{ await api('/me/tracks?ids=' + uri.split(':').pop(), { method:'PUT' }) }
   }
 
-  function renderRecs(id, tracks, missing){
-    if(!id || !tracks || !tracks.length) return;
+  function renderRecs(tracks, missing){
+    if(!tracks || !tracks.length) return;
     const liked = new Set(JSON.parse(store.get('ts_rec_liked') || '[]'));
     $('recResult').innerHTML =
-      `<div class="pl" data-id="${id}" style="border:0;padding-bottom:4px"><div class="pl-head"><span>${esc(REC_NAME)}<small>${tracks.length} שירים</small></span>` +
-      `<a href="#" data-act="open">פתח בספוטיפיי</a></div>` +
-      `<button class="primary" data-act="playrec">▶ נגן את ההמלצות</button></div>` +
+      `<div class="pl" style="border:0;padding-bottom:4px"><div class="pl-head"><span>${esc(REC_NAME)}<small>${tracks.length} שירים</small></span></div>` +
+      `<button class="primary" data-act="playrec">▶ נגן את ההמלצות</button>` +
+      `<button class="ghost" data-act="queuerec">➕ הוסף לתור ההשמעה (בלי לעצור את מה שמתנגן)</button></div>` +
       `<details><summary>❤️ לסמן מכאן (${tracks.length})</summary><div id="recRows">` +
       tracks.map(t => `<div class="rec"><span>${esc(t.name)}<small>${esc(t.artist)}</small></span>` +
         `<button data-uri="${t.uri}" class="${liked.has(t.uri) ? 'on' : ''}">${liked.has(t.uri) ? '💚' : '🤍'}</button></div>`).join('') +
       `</div></details>` +
       (missing && missing.length ? `<div class="miss">לא נמצאו: ${missing.map(esc).join(' · ')}</div>` : '');
   }
+  const recUris = () => { const liked = new Set(JSON.parse(store.get('ts_rec_liked') || '[]'));
+    return (JSON.parse(store.get('ts_rec_tracks') || '[]') || []).map(t => t.uri).filter(u => !liked.has(u)).slice(0, 100) };
   $('recResult').addEventListener('click', async e => {
     const el = e.target.closest('[data-act],[data-uri]'); if(!el) return;
     e.preventDefault();
     const st = $('recStatus'); st.className = 'status';
-    if(el.dataset.act === 'open') return openInSpotify(el.closest('.pl').dataset.id);
     el.disabled = true;
     try{
       if(el.dataset.act === 'playrec'){
         if(!hasPlayerScopes()) throw new Error('צריך קודם "התחבר מחדש" (למעלה) כדי לאשר שליטה בנגינה');
-        await playAt(el.closest('.pl').dataset.id, 0, true);
-        st.textContent = '✓ מנגן. שיר שאהבת? לחיצה על ➕ בספוטיפיי (גם באוטו)'; st.className = 'status ok';
+        const uris = recUris(); if(!uris.length) throw new Error('אין המלצות לנגן');
+        await startPlayback(JSON.stringify({ uris, position_ms: 0 }));
+        st.textContent = `✓ מנגן ${uris.length} המלצות. שיר שאהבת? לחיצה על ➕ בספוטיפיי (גם באוטו)`; st.className = 'status ok';
+      }else if(el.dataset.act === 'queuerec'){
+        if(!hasPlayerScopes()) throw new Error('צריך קודם "התחבר מחדש" (למעלה) כדי לאשר שליטה בנגינה');
+        const uris = recUris(); if(!uris.length) throw new Error('אין המלצות להוסיף');
+        const device = await activeDevice();
+        for(let i = 0; i < uris.length; i++){
+          st.textContent = `מוסיף לתור… ${i + 1} / ${uris.length}`;
+          await api('/me/player/queue?uri=' + encodeURIComponent(uris[i]) + (device ? '&device_id=' + device : ''), { method:'POST' });
+        }
+        st.textContent = `✓ ${uris.length} המלצות נוספו לתור. ➕ ליד שיר מוסיף ל"שירים שאהבתי"`; st.className = 'status ok';
       }else if(el.dataset.uri && !el.classList.contains('on')){
         await likeTrack(el.dataset.uri);
         el.classList.add('on'); el.textContent = '💚';
@@ -681,7 +684,7 @@
   const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
   // remember checkbox choices
-  ['optAll','optNew','optLang','optDecade','spread','recHide'].forEach(id => {
+  ['optAll','optNew','optLang','optDecade','spread'].forEach(id => {
     const v = store.get('ts_' + id); if(v !== null) $(id).checked = v === '1';
     $(id).onchange = () => store.set('ts_' + id, $(id).checked ? '1' : '0');
   });
@@ -707,7 +710,8 @@
       $('me').textContent = 'מחובר: ' + (me.display_name || me.id);
       show('app');
       $('reauth').classList.toggle('hidden', hasPlayerScopes());
-      try{ renderRecs(store.get('ts_rec_pid'), JSON.parse(store.get('ts_rec_tracks') || 'null'), JSON.parse(store.get('ts_rec_missing') || '[]')) }catch{}
+      try{ renderRecs(JSON.parse(store.get('ts_rec_tracks') || 'null'), JSON.parse(store.get('ts_rec_missing') || '[]')) }catch{}
+      store.del('ts_rec_pid'); // older versions kept recommendations in a (hidden) playlist; no longer used
       loadSavedLists().catch(() => {});
     }catch(e){
       show('login'); const s = document.createElement('p'); s.className='status err'; s.textContent = e.message; $('login').appendChild(s);
