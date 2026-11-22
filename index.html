@@ -122,8 +122,9 @@
     <!-- Recommendations -->
     <div class="card">
       <h2>🎁 ההמלצות של השבוע</h2>
-      <p class="tip" style="margin-top:0">1. העתק את פרופיל הטעם ושלח ל־Claude.<br>2. הדבק כאן את הרשימה שקיבלת (שורה לכל שיר, בפורמט: אמן - שיר).<br>שירים שכבר אהבת מדולגים אוטומטית.</p>
-      <button class="ghost" id="copyProfile" style="margin-top:0">📋 העתק פרופיל טעם</button>
+      <p class="tip" style="margin-top:0">1. שלח ל־Claude את הטעם המלא (קובץ).<br>2. הדבק כאן את הרשימה שקיבלת (שורה לכל שיר, בפורמט: אמן - שיר).<br>שירים שכבר אהבת מדולגים אוטומטית.</p>
+      <button class="ghost" id="exportTaste" style="margin-top:0">📄 שלח ל־Claude את הטעם המלא (כל השירים)</button>
+      <button class="ghost" id="copyProfile">📋 העתק פרופיל טעם (קצר)</button>
       <textarea id="recList" rows="7" placeholder="Artist - Song&#10;אמן - שיר"></textarea>
       <p class="tip" style="margin-top:0">ההמלצות לא נשמרות כפלייליסט בספרייה (אחרת ספוטיפיי מציג ✓ במקום ➕). הן מתנגנות ישירות מכאן, ובספוטיפיי ובאנדרואיד אוטו יופיע ➕: לחיצה אחת מוסיפה ל"שירים שאהבתי".</p>
       <button class="primary" id="buildRecs">הכן את ההמלצות</button>
@@ -506,6 +507,54 @@
     .replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
   // ---------- Taste profile ----------
+  // Full taste file: every liked song grouped by artist, plus feedback on last week's recommendations.
+  async function exportTaste(){
+    const st = $('recStatus'); st.className = 'status'; st.textContent = 'מכין קובץ…';
+    try{
+      const t = await getLiked(true, m => st.textContent = m);
+      const likedUris = new Set(t.map(x => x.uri));
+      const likedKeys = new Set(t.map(x => norm(x.artist) + '|' + norm(x.name)));
+      const recs = JSON.parse(store.get('ts_rec_tracks') || '[]') || [];
+      const isLiked = r => likedUris.has(r.uri) || likedKeys.has(norm(r.artist) + '|' + norm(r.name));
+      const recYes = recs.filter(isLiked), recNo = recs.filter(r => !isLiked(r));
+      const pct = n => Math.round(100 * n / t.length) + '%';
+      const count = f => t.reduce((m, x) => { const k = f(x); if(k != null) m[k] = (m[k] || 0) + 1; return m }, {});
+      const langs = count(x => x.lang), decades = count(x => x.year ? Math.floor(x.year / 10) * 10 : null);
+      const by = {};
+      for(const x of t){ (by[x.artist] = by[x.artist] || []).push(x) }
+      const artists = Object.keys(by).sort((a, b) => by[b].length - by[a].length || a.localeCompare(b));
+      const recent = t.slice().sort((a, b) => b.added - a.added).slice(0, 60);
+      const day = new Date().toISOString().slice(0, 10);
+      const txt = [
+        `MY FULL SPOTIFY TASTE (${day})`,
+        `Liked songs: ${t.length} | Artists: ${artists.length}`,
+        `Languages: ` + Object.entries(langs).map(([k, v]) => `${{he:'Hebrew',other:'Non-Hebrew',ar:'Arabic',ru:'Russian'}[k]} ${pct(v)}`).join(', '),
+        `Decades: ` + Object.keys(decades).sort().map(d => `${d}s ${pct(decades[d])}`).join(', '),
+        ``,
+        `FEEDBACK ON LAST RECOMMENDATIONS: liked ${recYes.length} of ${recs.length}`,
+        `LIKED (more like these): ` + (recYes.map(r => `${r.artist} - ${r.name}`).join('; ') || '-'),
+        `NOT LIKED: ` + (recNo.map(r => `${r.artist} - ${r.name}`).join('; ') || '-'),
+        ``,
+        `MOST RECENTLY LIKED (current mood):`,
+        ...recent.map(x => `${x.artist} - ${x.name}${x.year ? ' (' + x.year + ')' : ''}`),
+        ``,
+        `ALL LIKED SONGS BY ARTIST (count: songs):`,
+        ...artists.map(a => `${a} (${by[a].length}): ` + by[a].map(x => x.name + (x.year ? ' [' + x.year + ']' : '')).join('; ')),
+        ``,
+        `Please recommend 50-100 songs I don't already have (none of the songs above), matching this taste. One per line: Artist - Song`
+      ].join('\n');
+      const name = `spotify-taste-${day}.txt`;
+      const file = new File([txt], name, { type: 'text/plain' });
+      if(navigator.canShare && navigator.canShare({ files: [file] })){
+        try{ await navigator.share({ files: [file], title: 'הטעם שלי בספוטיפיי' }); st.textContent = '✓ נשלח. בחר את Claude ברשימת השיתוף'; st.className = 'status ok'; return }
+        catch(e){ if(e && e.name === 'AbortError'){ st.textContent = 'השיתוף בוטל'; return } }
+      }
+      const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      st.textContent = `✓ הקובץ ${name} ירד. צרף אותו בצ׳אט עם Claude`; st.className = 'status ok';
+    }catch(e){ st.textContent = 'שגיאה: ' + e.message; st.className = 'status err' }
+  }
+
   async function copyProfile(){
     const st = $('recStatus'); st.className = 'status'; st.textContent = 'בונה פרופיל…';
     try{
@@ -701,6 +750,7 @@
   $('logout').onclick = e => { e.preventDefault(); logout() };
   $('go').onclick = run;
   $('copyProfile').onclick = copyProfile;
+  $('exportTaste').onclick = exportTaste;
   $('buildRecs').onclick = buildRecs;
   $('findDups').onclick = findDups;
   $('removeDups').onclick = removeDups;
