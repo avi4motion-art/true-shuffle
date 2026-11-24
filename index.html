@@ -38,6 +38,9 @@
   .who{display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:14px;margin-bottom:14px}
   .who a{color:var(--muted)}
   .hidden{display:none!important}
+  .pulse{animation:pulse 1.2s ease-in-out 4}
+  @keyframes pulse{50%{transform:scale(1.04);box-shadow:0 0 0 6px rgba(30,215,96,.35)}}
+  @media (prefers-reduced-motion:reduce){.pulse{animation:none}}
   h2{font-size:19px;margin:0 0 10px}
   textarea{width:100%;margin:12px 0 10px;padding:12px 14px;border-radius:12px;border:1px solid var(--line);
     background:#0c100e;color:var(--text);font:inherit;font-size:15px;resize:vertical;direction:auto}
@@ -755,6 +758,20 @@
   $('findDups').onclick = findDups;
   $('removeDups').onclick = removeDups;
 
+  // A weekly link from Claude carries the recommendations in the address: #recs=<list>.
+  // Keep it (also across a Spotify login) and prepare it automatically once the app is ready.
+  { const m = location.hash.match(/^#recs=(.+)$/);
+    if(m){ try{ store.set('ts_pending_recs', decodeURIComponent(m[1])) }catch{} history.replaceState(null, '', REDIRECT) } }
+  async function runPendingRecs(){
+    const list = store.get('ts_pending_recs'); if(!list) return;
+    store.del('ts_pending_recs');
+    $('recList').value = list;
+    $('recList').closest('.card').scrollIntoView({ behavior:'smooth', block:'start' });
+    await buildRecs();
+    const play = document.querySelector('[data-act=playrec]');
+    if(play){ play.scrollIntoView({ behavior:'smooth', block:'center' }); play.classList.add('pulse') }
+  }
+
   (async () => {
     if(!clientId()){ show('setup'); return }
     try{
@@ -767,6 +784,7 @@
       try{ renderRecs(JSON.parse(store.get('ts_rec_tracks') || 'null'), JSON.parse(store.get('ts_rec_missing') || '[]')) }catch{}
       store.del('ts_rec_pid'); // older versions kept recommendations in a (hidden) playlist; no longer used
       loadSavedLists().catch(() => {});
+      runPendingRecs().catch(() => {});
     }catch(e){
       show('login'); const s = document.createElement('p'); s.className='status err'; s.textContent = e.message; $('login').appendChild(s);
     }
